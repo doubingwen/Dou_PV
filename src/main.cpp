@@ -18,6 +18,40 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+//创建调试消息接收器
+//自己写的拓展函数 ，调用的是Vulkan的拓展函数vkCreateDebugUtilsMessengerEXT，返回值是VkResult类型
+VkResult CreateDebugUtilsMessengerEXT(
+	VkInstance instance,
+	const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+	const VkAllocationCallbacks* pAllocator,
+	VkDebugUtilsMessengerEXT* pDebugMessenger)
+{
+	//vkCreateDebugUtilsMessengerEXT函数没有进行链接进来的拓展函数，所有我们要动态获取函数地址然后使用
+	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance,
+		"vkCreateDebugUtilsMessengerEXT");
+	if(func!=nullptr)
+	{
+		return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
+	}
+	else
+	{
+		//返回所需扩展不存在
+		return VK_ERROR_EXTENSION_NOT_PRESENT;
+	}
+}
+//销毁调试消息接收器
+void DestroyDebugUtilsMessengerEXT(
+	VkInstance instance, 
+	VkDebugUtilsMessengerEXT debugMessenger, 
+	const VkAllocationCallbacks* pAllocator)
+{
+	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance,
+		"vkDestroyDebugUtilsMessengerEXT");
+	if (func != nullptr)
+	{
+		func(instance, debugMessenger, pAllocator);
+	}
+}
 
 class Dou_Application {
 public:
@@ -36,6 +70,7 @@ private:
 	}
 	void initVulkan() {
 		createInstance();
+		setupDebugMessenger();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window))
@@ -44,6 +79,10 @@ private:
 		}
 	}
 	void cleanup() {
+		if (enableValidationLayers)
+		{
+			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+		}
 		vkDestroyInstance(instance, nullptr);
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -74,16 +113,23 @@ private:
 		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 		createInfo.ppEnabledExtensionNames = extensions.data();
 
+
+		//配置调试消息接收器的创建信息
+		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
 		//启用验证层
 		if (enableValidationLayers)
 		{
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			createInfo.ppEnabledLayerNames = validationLayers.data();
+
+			populateDebugMessengerCreateInfo(debugCreateInfo);
+			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
+			
 		}
 		else {
 			createInfo.enabledLayerCount = 0;
+			createInfo.pNext = nullptr;
 		}
-
 
 		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create instance!");
@@ -144,8 +190,52 @@ private:
 		std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
 		return VK_FALSE;
 	}
+
+	void setupDebugMessenger()
+	{
+		/*
+		你调用 Vulkan API
+				↓
+		验证层检查，发现问题
+				↓
+		产生一条验证消息
+				↓
+		消息接收器确认：符合你设置的消息条件
+				↓
+		调用你的 debugCallback，并把消息作为参数传进去
+				↓
+		执行 std::cerr，打印错误内容
+		*/
+		if (!enableValidationLayers) return;
+		
+		VkDebugUtilsMessengerCreateInfoEXT createInfo;
+		//配置调试消息接收器的创建信息
+		populateDebugMessengerCreateInfo(createInfo);
+
+		if (CreateDebugUtilsMessengerEXT(instance, &createInfo, 
+			nullptr, &debugMessenger) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to set up debug messenger!");
+		}
+
+	}
+
+	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
+	{
+		//填写消息接收器的配置
+		createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | 
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		createInfo.messageType= VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | 
+			VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | 
+			VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		//收到消息时调用的回调函数
+		createInfo.pfnUserCallback = debugCallback;
+	}
 	GLFWwindow* window;
 	VkInstance instance;
+	VkDebugUtilsMessengerEXT debugMessenger;
 };
 int main() {
 	Dou_Application app;
@@ -158,3 +248,35 @@ int main() {
 	}
 	return EXIT_SUCCESS;
 }
+
+
+
+
+
+/*验证层
+① checkValidationLayerSupport()
+   检查所需验证层是否存在
+		↓
+② getRequiredExtensions()
+   把 VK_EXT_debug_utils 加入扩展清单
+		↓
+③ createInstance() 中填写配置
+   启用验证层、扩展
+   调用 populateDebugMessengerCreateInfo()
+   将回调配置挂到 pNext
+		↓
+④ vkCreateInstance()
+   创建实例，验证层开始参与检查
+		↓
+⑤ setupDebugMessenger()
+   再调用 populateDebugMessengerCreateInfo()
+   调用 CreateDebugUtilsMessengerEXT()
+   创建显式的消息接收器
+		↓
+⑥ 产生符合条件的消息时
+   自动调用 debugCallback()，打印消息
+		↓
+⑦ 退出时
+   DestroyDebugUtilsMessengerEXT()
+   然后才能 vkDestroyInstance()
+  */
