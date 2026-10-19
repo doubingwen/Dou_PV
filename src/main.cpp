@@ -5,6 +5,7 @@
 #include<stdexcept>
 #include<cstdlib>
 #include<vector>
+#include<optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -53,6 +54,13 @@ void DestroyDebugUtilsMessengerEXT(
 	}
 }
 
+struct QueueFamilyIndices
+{
+	std::optional<uint32_t> graphicsFamily;
+	bool isComplete() {
+		return graphicsFamily.has_value();
+	}
+};
 class Dou_Application {
 public:
 	void run() {
@@ -266,9 +274,44 @@ private:
 	//查询显卡是否满足要求
 	bool isDeviceSuitable(VkPhysicalDevice device)
 	{
-		return true;
-	}
+		////查询设备 名称。类型，支持Vulkan版本
+		//VkPhysicalDeviceProperties deviceProperties;
+		//vkGetPhysicalDeviceProperties(device, &deviceProperties);
 
+		////查询对纹理压缩，64位浮点数，多视口渲染，采样器各向异性过滤，线性过滤等的支持情况
+		//VkPhysicalDeviceFeatures deviceFeatures;
+		//vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+		//
+		//return deviceProperties.deviceType==VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU&&
+		//	deviceFeatures.geometryShader;
+		QueueFamilyIndices indices = findQueueFamilies(device);
+
+		return indices.isComplete();
+	}
+	//队列查找
+	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
+	{
+		QueueFamilyIndices indices;
+		
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+		std::vector<VkQueueFamilyProperties>queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+		int i = 0;
+		for (const auto& queueFamily : queueFamilies)
+		{
+			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+			{
+				//找到我们要的队列族索引
+				indices.graphicsFamily = i;
+				break;
+			}
+			i++;
+		}
+		return indices;
+	}
 
 	GLFWwindow* window;
 	VkInstance instance;
