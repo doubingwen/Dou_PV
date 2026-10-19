@@ -71,6 +71,7 @@ private:
 	void initVulkan() {
 		createInstance();
 		setupDebugMessenger();
+		pickPhysicalDevice();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window))
@@ -233,6 +234,42 @@ private:
 		//收到消息时调用的回调函数
 		createInfo.pfnUserCallback = debugCallback;
 	}
+	
+	void pickPhysicalDevice()
+	{ 
+		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+		uint32_t deviceCount = 0;
+		//查询显卡数量
+		vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+		if (deviceCount == 0)
+		{
+			throw std::runtime_error("failed to find GPUs with Vulkan support!");
+		}
+		//将查询到的显卡数量存入一个向量中
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+		
+		for (const auto& device : devices)
+		{
+			if (isDeviceSuitable(device))
+			{
+				physicalDevice = device;
+				break;
+			}
+		}
+
+		if(physicalDevice==VK_NULL_HANDLE)
+		{
+			throw std::runtime_error("failed to find a suitable GPU!");
+		}
+	}
+	//查询显卡是否满足要求
+	bool isDeviceSuitable(VkPhysicalDevice device)
+	{
+		return true;
+	}
+
+
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
