@@ -1,0 +1,12 @@
+* text=auto
+*.cpp text
+*.h text
+*.hpp text
+*.inl text
+*.md text
+*.props text
+*.vcxproj text
+*.filters text
+*.slnx text
+*.dll binary
+*.lib binary

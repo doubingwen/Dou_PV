@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <DouVulkanSdkRoot Condition="'$(DouVulkanSdkRoot)'==''">$(VULKAN_SDK)</DouVulkanSdkRoot>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(DouVulkanSdkRoot)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(DouVulkanSdkRoot)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="CheckVulkanSdk" BeforeTargets="PrepareForBuild" Condition="'$(Platform)'=='x64'">
+    <Error Condition="!Exists('$(DouVulkanSdkRoot)\Include\vulkan\vulkan.h')" Text="Vulkan SDK headers not found. Set VULKAN_SDK or DouVulkanSdkRoot." />
+    <Error Condition="!Exists('$(DouVulkanSdkRoot)\Lib\vulkan-1.lib')" Text="Vulkan SDK x64 import library not found." />
+  </Target>
+</Project>

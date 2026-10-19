@@ -1,0 +1,21 @@
+# Visual Studio local settings and caches
+/.vs/
+*.vcxproj.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Application outputs and intermediate build files
+/bin/
+/obj/
+/build/
+/x64/
+/Debug/
+/Release/
+
+# Local-only files
+*.bak
+*.tmp
+.env
+.env.*
+# ThirdParty/glfw/bin and ThirdParty/glfw/lib are intentional dependencies.
