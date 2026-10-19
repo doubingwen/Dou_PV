@@ -80,6 +80,7 @@ private:
 		createInstance();
 		setupDebugMessenger();
 		pickPhysicalDevice();
+		createLogicalDevice();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window))
@@ -88,6 +89,7 @@ private:
 		}
 	}
 	void cleanup() {
+		vkDestroyDevice(device, nullptr);
 		if (enableValidationLayers)
 		{
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -245,7 +247,6 @@ private:
 	
 	void pickPhysicalDevice()
 	{ 
-		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 		uint32_t deviceCount = 0;
 		//查询显卡数量
 		vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
@@ -313,9 +314,44 @@ private:
 		return indices;
 	}
 
+	void createLogicalDevice()
+	{
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		VkDeviceQueueCreateInfo queueCreateInfo{};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+		queueCreateInfo.queueCount = 1;//申请的队列数量
+		//分配优先级
+		float queuePriority = 1.0f;
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+
+		//
+		VkPhysicalDeviceFeatures deviceFeatures{};
+
+		VkDeviceCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		createInfo.pQueueCreateInfos = &queueCreateInfo;
+		createInfo.queueCreateInfoCount = 1;
+		createInfo.pEnabledFeatures = &deviceFeatures;
+		createInfo.enabledExtensionCount = 0;
+		//创建逻辑设备
+		if(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create logical device!");
+		}
+		//从逻辑设备中获取队列句柄
+		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+	}
+
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
+	//逻辑设备
+	VkDevice device;
+	//物理设备
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+
+	VkQueue graphicsQueue;
 };
 int main() {
 	Dou_Application app;
