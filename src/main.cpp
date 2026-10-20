@@ -11,12 +11,18 @@
 #include<vector>
 #include<optional>
 #include<set>
+#include<limits>
+#include<algorithm>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 //验证层，目前只使用了一个验证层，后续可以添加更多的验证层。可用层
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
+};
+//拓展功能
+const std::vector<const char*>deviceExtensions = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -71,6 +77,17 @@ struct QueueFamilyIndices
 		return graphicsFamily.has_value()&&presentFamily.has_value();
 	}
 };
+//交换链的功能
+struct SwapChainSupportDetails
+{
+	//交换链支持多少张图形，尺寸，表面指定的尺寸
+	VkSurfaceCapabilitiesKHR capabilities;
+	//交换链支持的像素格式和颜色空间
+	std::vector<VkSurfaceFormatKHR>formats;
+	//交换链支持的呈现模式（按照顺序，新的优先等等）
+	std::vector<VkPresentModeKHR>presentModes;
+};
+
 class Dou_Application {
 public:
 	void run() {
@@ -92,6 +109,7 @@ private:
 		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		createSwapChain();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window))
@@ -100,6 +118,7 @@ private:
 		}
 	}
 	void cleanup() {
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);
 		if (enableValidationLayers)
 		{
@@ -299,8 +318,39 @@ private:
 		//return deviceProperties.deviceType==VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU&&
 		//	deviceFeatures.geometryShader;
 		QueueFamilyIndices indices = findQueueFamilies(device);
+		//查看是否支持交互链扩展
+		bool extensionsSupported = checkDeviceExtensionSupport(device);
+		bool swapChainAdequate = false;
+		if (extensionsSupported)
+		{
+			//查看交换链功能是否足够
+			SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+			swapChainAdequate = !swapChainSupport.formats.empty() && 
+				!swapChainSupport.presentModes.empty();
 
-		return indices.isComplete();
+		}
+		return indices.isComplete()&&extensionsSupported&&swapChainAdequate;
+	}
+	//查询是否支持交换链扩展
+	bool checkDeviceExtensionSupport(VkPhysicalDevice device)
+	{
+		//我们需要的功能，然后去在GPU上查询是否支持这些功能，如果不支持就不能使用这个GPU
+		uint32_t extensionCount;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, 
+			&extensionCount, nullptr);
+
+		std::vector<VkExtensionProperties>availableExtensions(extensionCount);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, 
+			&extensionCount, availableExtensions.data());
+
+		std::set<std::string>requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+
+		for (const auto& extension : availableExtensions)
+		{
+			requiredExtensions.erase(extension.extensionName);
+		}
+		//GPU支持所有我们需要的功能就返回true，否则返回false
+		return requiredExtensions.empty();
 	}
 	//队列族查找
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
@@ -369,7 +419,9 @@ private:
 		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 		createInfo.pEnabledFeatures = &deviceFeatures;
 		//拓展功能数量
-		createInfo.enabledExtensionCount = 0;
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+		createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
 		//创建逻辑设备
 		if(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
 		{
@@ -387,7 +439,151 @@ private:
 			throw std::runtime_error("failed to create window surface!");	
 		}
 	}
-	GLFWwindow* window;
+	
+	//查询交换链支持的功能
+	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
+	{
+		SwapChainSupportDetails details;
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, 
+			&details.capabilities);
+		uint32_t formatCount;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, 
+			&formatCount, nullptr);
+		if (formatCount != 0)
+		{
+			details.formats.resize(formatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device,surface,
+				&formatCount,details.formats.data());
+		}
+		uint32_t presentModeCount;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, 
+			&presentModeCount, nullptr);
+		if (presentModeCount!= 0)
+		{
+			details.presentModes.resize(presentModeCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, 
+				&presentModeCount, details.presentModes.data());	
+		}
+		return details;
+
+	}
+	
+	//选择交换链正确设置
+	VkSurfaceFormatKHR chooseSwapSurfaceFormat
+	(const std::vector<VkSurfaceFormatKHR>& availableFormats)
+	{
+		for (const auto& availableFormat : availableFormats)
+		{
+			if(availableFormat.format==VK_FORMAT_B8G8R8A8_SRGB
+				&&availableFormat.colorSpace== VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+				return availableFormat;
+		}
+		return availableFormats[0];
+	}
+	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR> & availablePresentModes)
+	{
+		for (const auto& availablePresentMode : availablePresentModes)
+		{
+			return availablePresentMode;
+		}
+		return VK_PRESENT_MODE_FIFO_KHR;
+	}
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities)
+	{
+		if (capabilities.currentExtent.width 
+			!= std::numeric_limits<uint32_t>::max())
+		{
+			//如果指定了就有默认的尺寸，直接返回
+			return capabilities.currentExtent;
+		}
+		else
+		{
+			int width,height;
+			glfwGetFramebufferSize(window,&width,&height);
+
+			VkExtent2D actualExtent = {
+				static_cast<uint32_t>(width),
+				static_cast<uint32_t>(height)
+			};
+				
+			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width,
+				capabilities.maxImageExtent.width);
+			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height,
+				capabilities.maxImageExtent.height);
+			return actualExtent;
+		}
+	}
+	
+	//创建交换链
+	void createSwapChain()
+	{
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+
+		//限制交换链图像数量
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		if (swapChainSupport.capabilities.maxImageCount > 0
+			&& imageCount > swapChainSupport.capabilities.maxImageCount)
+		{
+			imageCount = swapChainSupport.capabilities.maxImageCount;	
+		}
+
+		VkSwapchainCreateInfoKHR createInfo{};
+		createInfo.sType= VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = surface;
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		createInfo.imageArrayLayers = 1;
+		//交换链图像的用途，这里是作为颜色附件使用
+		createInfo.imageUsage= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(),indices.presentFamily.value() };
+		if (indices.graphicsFamily != indices.presentFamily)
+		{	//当渲染和呈现不在一个队列时
+			//允许队列族共享这个交互链图像
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			//共享的队列族数量
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		}
+		else
+		{
+			//独占模式
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			createInfo.queueFamilyIndexCount = 0;
+			createInfo.pQueueFamilyIndices = nullptr;
+		}
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		createInfo.presentMode = presentMode;
+		createInfo.clipped = VK_TRUE;
+
+		createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create swap chain!");
+		}
+
+		//创建完交互链后，拿到交换链中的图像
+
+		//拿到数量
+		vkGetSwapchainImagesKHR(device,swapChain,&imageCount,nullptr);
+		//根据数量设置大小
+		swapChainImages.resize(imageCount);
+		//将信息读到变量组中
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
+	}
+	
+	GLFWwindow * window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	//逻辑设备
@@ -401,6 +597,14 @@ private:
 
 	//Vulkan呈现的目标，将这个surface和GLFW的窗口绑定在一起，GLFW会自动选择合适的呈现方式
 	VkSurfaceKHR surface;
+
+	//交换链
+	VkSwapchainKHR swapChain;
+	//交换链中的图像
+	std::vector<VkImage> swapChainImages;
+	//交换链中图像格式
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
 };
 int main() {
 	Dou_Application app;
