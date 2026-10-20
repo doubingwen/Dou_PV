@@ -1,11 +1,16 @@
+#define VK_USE_PLATFORM_WIN32_KHR
+#define GLFW_INCLUDE_VULKAN
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #include <glm/glm.hpp>
 #include <iostream>
 #include<stdexcept>
 #include<cstdlib>
 #include<vector>
 #include<optional>
+#include<set>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -56,9 +61,14 @@ void DestroyDebugUtilsMessengerEXT(
 
 struct QueueFamilyIndices
 {
+	/*队列有绘图不一定有呈现*/
+	//绘图队列族索引
 	std::optional<uint32_t> graphicsFamily;
+	//呈现队列族索引
+	std::optional<uint32_t> presentFamily;
+
 	bool isComplete() {
-		return graphicsFamily.has_value();
+		return graphicsFamily.has_value()&&presentFamily.has_value();
 	}
 };
 class Dou_Application {
@@ -79,6 +89,7 @@ private:
 	void initVulkan() {
 		createInstance();
 		setupDebugMessenger();
+		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
 	}
@@ -94,6 +105,7 @@ private:
 		{
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}
+		vkDestroySurfaceKHR(instance,surface,nullptr);
 		vkDestroyInstance(instance, nullptr);
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -290,12 +302,13 @@ private:
 
 		return indices.isComplete();
 	}
-	//队列查找
+	//队列族查找
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
 	{
 		QueueFamilyIndices indices;
 		
 		uint32_t queueFamilyCount = 0;
+
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 		std::vector<VkQueueFamilyProperties>queueFamilies(queueFamilyCount);
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
@@ -305,8 +318,19 @@ private:
 		{
 			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
 			{
-				//找到我们要的队列族索引
+				//找到有绘图功能的队列族
 				indices.graphicsFamily = i;
+			}
+			VkBool32 presentSupport = false;
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+			if (presentSupport)
+			{
+				//找到有呈现功能的队列族
+				indices.presentFamily = i;
+			}
+
+			if (indices.isComplete())
+			{
 				break;
 			}
 			i++;
@@ -316,23 +340,35 @@ private:
 
 	void createLogicalDevice()
 	{
+		//获取物理设备的队列族索引
 		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
-		VkDeviceQueueCreateInfo queueCreateInfo{};
-		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-		queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-		queueCreateInfo.queueCount = 1;//申请的队列数量
-		//分配优先级
+
+
+
+		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+		std::set<uint32_t>uniqueQueueFamilies = {indices.graphicsFamily.value()
+		,indices.presentFamily.value()};
 		float queuePriority = 1.0f;
-		queueCreateInfo.pQueuePriorities = &queuePriority;
+		for (uint32_t queueFamily : uniqueQueueFamilies)
+		{
+			VkDeviceQueueCreateInfo queueCreateInfo{};
+			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			queueCreateInfo.queueFamilyIndex = queueFamily;
+			queueCreateInfo.queueCount = 1;
+			queueCreateInfo.pQueuePriorities = &queuePriority;
+			//把每个队列族的创建信息都放入队列创建信息向量中
+			queueCreateInfos.push_back(queueCreateInfo);
+		}
 
-		//
+		//创建该队列的功能信息，暂时不需要任何功能，所以设置为默认值
 		VkPhysicalDeviceFeatures deviceFeatures{};
-
+		//创建逻辑设备信息
 		VkDeviceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		createInfo.pQueueCreateInfos = &queueCreateInfo;
-		createInfo.queueCreateInfoCount = 1;
+		createInfo.pQueueCreateInfos = queueCreateInfos.data();
+		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 		createInfo.pEnabledFeatures = &deviceFeatures;
+		//拓展功能数量
 		createInfo.enabledExtensionCount = 0;
 		//创建逻辑设备
 		if(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
@@ -341,8 +377,16 @@ private:
 		}
 		//从逻辑设备中获取队列句柄
 		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 
+	void createSurface()
+	{
+		if (glfwCreateWindowSurface(instance,window,nullptr, &surface) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create window surface!");	
+		}
+	}
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
@@ -351,7 +395,12 @@ private:
 	//物理设备
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
+	//绘图队列和呈现队列
 	VkQueue graphicsQueue;
+	VkQueue presentQueue;
+
+	//Vulkan呈现的目标，将这个surface和GLFW的窗口绑定在一起，GLFW会自动选择合适的呈现方式
+	VkSurfaceKHR surface;
 };
 int main() {
 	Dou_Application app;
