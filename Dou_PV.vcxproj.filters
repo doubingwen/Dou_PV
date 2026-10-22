@@ -18,5 +18,23 @@
     <ClCompile Include="src\main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="tools\readfile.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\shaders\shader.vs" />
+    <None Include="src\shaders\shader.vert" />
+    <None Include="src\shaders\shader.frag" />
+    <None Include="src\shaders\compile.bat">
+      <Filter>源文件</Filter>
+    </None>
+    <None Include="src\shaders\frag.spv" />
+    <None Include="src\shaders\vert.spv" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="tools\readfile.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

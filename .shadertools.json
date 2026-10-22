@@ -1,0 +1,8 @@
+{
+  "includes": [],
+  "defines": {},
+  "glsl": {
+    "targetClient": "Vulkan1_0",
+    "spirvVersion": "SPIRV1_0"
+  }
+}

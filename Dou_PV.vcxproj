@@ -144,6 +144,18 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="tools\readfile.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\shaders\compile.bat" />
+    <None Include="src\shaders\frag.spv" />
+    <None Include="src\shaders\shader.frag" />
+    <None Include="src\shaders\shader.vert" />
+    <None Include="src\shaders\shader.vs" />
+    <None Include="src\shaders\vert.spv" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="tools\readfile.h" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <ClCompile>
