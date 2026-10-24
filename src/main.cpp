@@ -114,6 +114,7 @@ private:
 		createImageViews();
 		createRenderPass();
 		createGraphicsPipline();
+		createFramebuffers();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window))
@@ -122,6 +123,10 @@ private:
 		}
 	}
 	void cleanup() {
+		for (auto framebuffer : swapChainFramebuffers)
+		{
+			vkDestroyFramebuffer(device,framebuffer,nullptr);
+		}
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
@@ -605,7 +610,7 @@ private:
 			createInfo.image = swapChainImages[i];
 			createInfo.viewType= VK_IMAGE_VIEW_TYPE_2D;
 			createInfo.format = swapChainImageFormat;
-			//可以设置对那些通道进行混合
+			//原本RGBA的颜色值，可以设置通道映射
 			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -847,6 +852,28 @@ private:
 			throw std::runtime_error("failed to create render pass!");
 		}
 	}
+	
+	//创建帧缓冲
+	void createFramebuffers()
+	{	//为每张交换链图像视图，创建一个对应的帧缓冲。
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+		for (size_t i = 0;i < swapChainImageViews.size();i++)
+		{
+			VkImageView attachments[] = { swapChainImageViews[i] };
+			VkFramebufferCreateInfo framebufferInfo{};
+			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass = renderPass;
+			framebufferInfo.attachmentCount = 1;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = swapChainExtent.width;
+			framebufferInfo.height = swapChainExtent.height;
+			framebufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create framebuffer!");
+			}
+		}
+	}
 	GLFWwindow * window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
@@ -880,6 +907,11 @@ private:
 
 	//管线
 	VkPipeline graphicsPipeline;
+
+	//帧缓冲
+	//VkFramebuffer提供具体的附件视图
+	std::vector<VkFramebuffer>swapChainFramebuffers;
+
 };
 int main() {
 	Dou_Application app;
