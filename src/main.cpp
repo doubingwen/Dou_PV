@@ -104,8 +104,10 @@ private:
 	void initWindow() {
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API,GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-		window = glfwCreateWindow(WIDTH,HEIGHT,"Dou_Vulkan",nullptr,nullptr);
+
+		window = glfwCreateWindow(WIDTH, HEIGHT, "Dou_Vulkan", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 	}
 	void initVulkan() {
 		createInstance();
@@ -122,6 +124,11 @@ private:
 		createCommandBuffers();
 		createSyncObjects();
 	}
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) 
+	{
+		auto app = reinterpret_cast<Dou_Application*>(glfwGetWindowUserPointer(window));
+		app->framebufferResized = true;
+	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window))
 		{
@@ -131,6 +138,9 @@ private:
 		vkDeviceWaitIdle(device);
 	}
 	void cleanup() {
+
+		cleanupSwapChain();
+
 		for (size_t i = 0;i < MAX_FRAMES_IN_FLIGHT;i++)
 		{
 			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
@@ -138,19 +148,14 @@ private:
 			vkDestroyFence(device, inFlightFences[i], nullptr);
 		}
 		vkDestroyCommandPool(device, commandPool, nullptr);
-		for (auto framebuffer : swapChainFramebuffers)
-		{
-			vkDestroyFramebuffer(device,framebuffer,nullptr);
-		}
+	
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
-		for (auto imageView : swapChainImageViews)
-		{
-			vkDestroyImageView(device,imageView,nullptr);
-		}
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
+
+
 		vkDestroyDevice(device, nullptr);
+
 		if (enableValidationLayers)
 		{
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -613,7 +618,33 @@ private:
 		swapChainImageFormat = surfaceFormat.format;
 		swapChainExtent = extent;
 	}
-	
+	// 重新设置交换链
+	void recreateSwapChain()
+	{
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+		//让CPU等这个GPU上的所有队列工作完成后再继续执行
+		vkDeviceWaitIdle(device);
+
+		cleanupSwapChain();
+		createSwapChain();
+		createImageViews();
+		createFramebuffers();
+	}
+	//清除交换链
+	void cleanupSwapChain() {
+		for (auto framebuffer : swapChainFramebuffers) {
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+		for (auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
 	//创建imageviews 
 	void createImageViews()
 	{
@@ -994,15 +1025,21 @@ private:
 	{
 		//上一帧的GPU工作是否完成，不完成就在这儿等待
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+		
+
+		//获取交换链图像索引
+		uint32_t imageIndex;
+		VkResult result = vkAcquireNextImageKHR(device, swapChain,
+			UINT64_MAX, imageAvailableSemaphores[currentFrame],
+			VK_NULL_HANDLE, &imageIndex);
+
+
+		
 		// 等待成功后，CPU 才会执行这里
 		vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
 		
-		//获取交换链图像
-		uint32_t imageIndex;
-		vkAcquireNextImageKHR(device, swapChain, 
-			UINT64_MAX, imageAvailableSemaphores[currentFrame],
-			VK_NULL_HANDLE, &imageIndex);
+
 
 		//命令清除
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -1042,7 +1079,22 @@ private:
 		presentInfo.pSwapchains = swapChains;
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr; // Optional
+
 		vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		//交换链和窗口是否匹配，
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
+		{
+			framebufferResized = false;
+			recreateSwapChain();//重新设置交换链
+			return;
+		}
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+		{
+			throw std::runtime_error("failed to acquire swap chain image!");
+		}
+
+
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
@@ -1095,7 +1147,7 @@ private:
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
 
-	//VkImageView保存如何使用这个交互链中的图像
+	//VkImageView保存这个图像的说明，类型，格式，通道，颜色等
 	std::vector<VkImageView> swapChainImageViews;
 
 	//pass
@@ -1125,6 +1177,9 @@ private:
 
 	//当前是（1/2）中的那一帧
 	uint32_t currentFrame = 0;
+
+	//是否帧缓冲改变
+	bool framebufferResized = false;
 	
 };
 int main() {
