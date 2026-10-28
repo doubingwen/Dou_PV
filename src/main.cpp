@@ -17,6 +17,9 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
+//最多允许多少帧处于处理过程中。
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 //验证层，目前只使用了一个验证层，后续可以添加更多的验证层。可用层
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -116,7 +119,7 @@ private:
 		createGraphicsPipline();
 		createFramebuffers();
 		createCommandPool();
-		createCommandBuffer();
+		createCommandBuffers();
 		createSyncObjects();
 	}
 	void mainLoop() {
@@ -128,9 +131,12 @@ private:
 		vkDeviceWaitIdle(device);
 	}
 	void cleanup() {
-		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
-		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-		vkDestroyFence(device, inFlightFence, nullptr);
+		for (size_t i = 0;i < MAX_FRAMES_IN_FLIGHT;i++)
+		{
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(device, inFlightFences[i], nullptr);
+		}
 		vkDestroyCommandPool(device, commandPool, nullptr);
 		for (auto framebuffer : swapChainFramebuffers)
 		{
@@ -922,16 +928,17 @@ private:
 			throw std::runtime_error("failed to create command pool!");
 		}
 	}
-	void createCommandBuffer()
+	void createCommandBuffers()
 	{
-		//从 commandPool 中分配一个主命令缓冲区，并把句柄保存到 commandBuffer。
+		//从 commandPool 中分配命令缓冲区，并把句柄保存到 commandBuffer。
+		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
 		VkCommandBufferAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		allocInfo.commandPool = commandPool;
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandBufferCount = 1;
-		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+		allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
+		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
 			throw std::runtime_error("failed to allocate command buffers!");
 		}
 	}
@@ -986,25 +993,25 @@ private:
 	void drawFrame()
 	{
 		//上一帧的GPU工作是否完成，不完成就在这儿等待
-		vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 		// 等待成功后，CPU 才会执行这里
-		vkResetFences(device, 1, &inFlightFence);
+		vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
-
+		
 		//获取交换链图像
 		uint32_t imageIndex;
 		vkAcquireNextImageKHR(device, swapChain, 
-			UINT64_MAX, imageAvailableSemaphore,
+			UINT64_MAX, imageAvailableSemaphores[currentFrame],
 			VK_NULL_HANDLE, &imageIndex);
 
 		//命令清除
-		vkResetCommandBuffer(commandBuffer, 0);
-		recordCommandBuffer(commandBuffer, imageIndex);
+		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
 		//提交命令给缓冲区
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+		VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
 		//等待的阶段选择在颜色附件输出阶段
 		//信号量是交换链的图像可以写，当颜色附件可以输出来等待这个信号量
 		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
@@ -1013,14 +1020,14 @@ private:
 		submitInfo.pWaitSemaphores = waitSemaphores;
 		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffer;
+		submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
 		//本次图形提交执行完成后，让 renderFinishedSemaphore 发出信号。
-		VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+		VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
 		}
 
@@ -1036,20 +1043,31 @@ private:
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr; // Optional
 		vkQueuePresentKHR(presentQueue, &presentInfo);
+		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	//创建同步对象
 	void createSyncObjects()
 	{
+		imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
+
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 		VkFenceCreateInfo fenceInfo{};
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
-			vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create semaphores!");
+
+		for (size_t i = 0;i < MAX_FRAMES_IN_FLIGHT;i++)
+		{
+
+			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+				vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create synchronization objects for a frame!");
+			}
 		}
 
 	}
@@ -1094,13 +1112,20 @@ private:
 	//命令缓冲池
 	VkCommandPool commandPool;
 	//命令缓冲
-	VkCommandBuffer commandBuffer;
+	std::vector<VkCommandBuffer> commandBuffers;
 
 	// 信号量和栅栏
 
-	VkSemaphore imageAvailableSemaphore; //交换链图像可用
-	VkSemaphore renderFinishedSemaphore; //绘制完成，可用呈现
-	VkFence inFlightFence; //命令提交完成，cpu准备复用命令缓冲区
+	//VkSemaphore imageAvailableSemaphore; //交换链图像可用
+	//VkSemaphore renderFinishedSemaphore; //绘制完成，可用呈现
+	//VkFence inFlightFence; //命令提交完成，cpu准备复用命令缓冲区
+	std::vector<VkSemaphore> imageAvailableSemaphores;
+	std::vector<VkSemaphore> renderFinishedSemaphores;
+	std::vector<VkFence> inFlightFences;
+
+	//当前是（1/2）中的那一帧
+	uint32_t currentFrame = 0;
+	
 };
 int main() {
 	Dou_Application app;
