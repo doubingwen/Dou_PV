@@ -42,7 +42,7 @@ const bool enableValidationLayers = true;
 
 
 struct Vertex {
-	glm::vec2 pos;
+	glm::vec3 pos;
 	glm::vec3 color;
 	glm::vec2 texCoord;
 
@@ -58,7 +58,7 @@ struct Vertex {
 		//下面shader中 location传人的都是那些数据
 		attributeDescriptions[0].binding = 0;
 		attributeDescriptions[0].location = 0;
-		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[0].offset = offsetof(Vertex, pos);
 		
 		attributeDescriptions[1].binding = 0;
@@ -80,13 +80,19 @@ struct Vertex {
 //	{ { -0.5f, 0.5f },{ 0.0f, 0.0f, 1.0f } }
 //};
 const std::vector<Vertex> vertices = {
-	{ { -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f },{ 1.0f, 0.0f } },
-	{ { 0.5f, -0.5f },{ 0.0f, 1.0f, 0.0f },{ 0.0f, 0.0f } },
-	{ { 0.5f, 0.5f },{ 0.0f, 0.0f, 1.0f },{ 0.0f, 1.0f } },
-	{ { -0.5f, 0.5f },{ 1.0f, 1.0f, 1.0f },{ 1.0f, 1.0f } }
+	{ { -0.5f, -0.5f, 0.0f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
+	{ { 0.5f, -0.5f, 0.0f },{ 0.0f, 1.0f, 0.0f },{ 1.0f, 0.0f } },
+	{ { 0.5f, 0.5f, 0.0f },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },
+	{ { -0.5f, 0.5f, 0.0f },{ 1.0f, 1.0f, 1.0f },{ 0.0f, 1.0f } },
+
+	{ { -0.5f, -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
+	{ { 0.5f, -0.5f, -0.5f },{ 0.0f, 1.0f, 0.0f },{ 1.0f, 0.0f } },
+	{ { 0.5f, 0.5f, -0.5f },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },
+	{ { -0.5f, 0.5f, -0.5f },{ 1.0f, 1.0f, 1.0f },{ 0.0f, 1.0f } }
 };
 const std::vector<uint16_t> indices = {
-	0, 1, 2, 2, 3, 0
+	0, 1, 2, 2, 3, 0,
+	4, 5, 6, 6, 7, 4
 };
 
 //创建调试消息接收器
@@ -182,8 +188,9 @@ private:
 		createRenderPass();
 		createDescriptorSetLayout();
 		createGraphicsPipline();
-		createFramebuffers();
 		createCommandPool();
+		createDepthResources();
+		createFramebuffers();
 		createTextureImage();
 		createTextureImageView();
 		createTextureSampler();
@@ -209,8 +216,10 @@ private:
 		vkDeviceWaitIdle(device);
 	}
 	void cleanup() {
-
 		cleanupSwapChain();
+		vkDestroyImageView(device, depthImageView, nullptr);
+		vkDestroyImage(device, depthImage, nullptr);
+		vkFreeMemory(device, depthImageMemory, nullptr);
 		vkDestroySampler(device, textureSampler, nullptr);
 		vkDestroyImageView(device, textureImageView, nullptr);
 		vkDestroyImage(device, textureImage, nullptr);
@@ -723,6 +732,7 @@ private:
 		cleanupSwapChain();
 		createSwapChain();
 		createImageViews();
+		createDepthResources();
 		createFramebuffers();
 	}
 	//清除交换链
@@ -741,7 +751,7 @@ private:
 		swapChainImageViews.resize(swapChainImages.size());
 		for (size_t i = 0;i < swapChainImages.size();i++)
 		{
-			swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
+			swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
 		}
 	}
 	
@@ -900,6 +910,18 @@ private:
 			throw std::runtime_error("failed to create pipeline layout!");
 		}
 
+		//深度和模板
+		VkPipelineDepthStencilStateCreateInfo depthStencil{};
+		depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		depthStencil.depthTestEnable = VK_TRUE;
+		depthStencil.depthWriteEnable = VK_TRUE;
+		depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+		depthStencil.depthBoundsTestEnable = VK_FALSE;
+		depthStencil.minDepthBounds = 0.0f; // Optional
+		depthStencil.maxDepthBounds = 1.0f; // Optional
+		depthStencil.stencilTestEnable = VK_FALSE;
+		depthStencil.front = {}; // Optional
+		depthStencil.back = {}; // Optional
 
 		//管线信息配置
 		VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -911,7 +933,7 @@ private:
 		pipelineInfo.pViewportState = &viewportState;
 		pipelineInfo.pRasterizationState = &rasterizer;
 		pipelineInfo.pMultisampleState = &multisampling;
-		pipelineInfo.pDepthStencilState = nullptr; // Optional
+		pipelineInfo.pDepthStencilState = &depthStencil;
 		pipelineInfo.pColorBlendState = &colorBlending;
 		pipelineInfo.pDynamicState = &dynamicState;
 		pipelineInfo.layout = pipelineLayout;
@@ -943,17 +965,31 @@ private:
 		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		
+		//深度附件
+		VkAttachmentDescription depthAttachment{};
+		depthAttachment.format = findDepthFormat();
+		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
 		//pass使用哪个附件
 		VkAttachmentReference colorAttachmentRef{};
 		colorAttachmentRef.attachment = 0;
 		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		VkAttachmentReference depthAttachmentRef{};
+		depthAttachmentRef.attachment = 1;
+		depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 		
 		//子pass，绑定使用的附件
 		VkSubpassDescription subpass{};
 		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		subpass.colorAttachmentCount = 1;
 		subpass.pColorAttachments = &colorAttachmentRef;
+		subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
 		//给渲染通道外部的操作与内部的子通道 
 		// 0 建立依赖，让子通道 0 按正确顺序开始使用附件。
@@ -962,26 +998,27 @@ private:
 		
 		//让图像可用在 renderpass之前进行
 		VkSubpassDependency dependency{};
-		//这条依赖约束哪些管线阶段
+		//这条依赖约束哪些管线阶段,要等谁
 		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dependency.dstSubpass = 0;
 		//源 的同步范围
 		//颜色附件输出阶段
 		//来源侧不指定需要同步的内存访问类型
-		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependency.srcAccessMask = 0;
+		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		//目的的同步范围
 		//子通道 0 中，清除、写入颜色附件的相关操作，要遵守这条等待关系。
-		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;;
 		//这条依赖在目标侧要同步的内存访问，是“写入颜色附件”。
-		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;;
 
 
 		//主pass设置
+		std::array<VkAttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
 		VkRenderPassCreateInfo renderPassInfo{};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		renderPassInfo.attachmentCount = 1;
-		renderPassInfo.pAttachments = &colorAttachment;
+		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());;
+		renderPassInfo.pAttachments = attachments.data();
 		renderPassInfo.subpassCount = 1;
 		renderPassInfo.pSubpasses = &subpass;
 		renderPassInfo.dependencyCount = 1;
@@ -998,12 +1035,15 @@ private:
 		swapChainFramebuffers.resize(swapChainImageViews.size());
 		for (size_t i = 0;i < swapChainImageViews.size();i++)
 		{
-			VkImageView attachments[] = { swapChainImageViews[i] };
+			std::array<VkImageView, 2> attachments = {
+									swapChainImageViews[i],
+									depthImageView
+											};
 			VkFramebufferCreateInfo framebufferInfo{};
 			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			framebufferInfo.renderPass = renderPass;
-			framebufferInfo.attachmentCount = 1;
-			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+			framebufferInfo.pAttachments = attachments.data();
 			framebufferInfo.width = swapChainExtent.width;
 			framebufferInfo.height = swapChainExtent.height;
 			framebufferInfo.layers = 1;
@@ -1061,9 +1101,13 @@ private:
 		renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
 		renderPassInfo.renderArea.offset = { 0, 0 };
 		renderPassInfo.renderArea.extent = swapChainExtent;
-		VkClearValue clearColor = { { { 0.0f, 0.0f, 0.0f, 1.0f } } };
-		renderPassInfo.clearValueCount = 1;
-		renderPassInfo.pClearValues = &clearColor;
+		//VkClearValue clearColor = { { { 0.0f, 0.0f, 0.0f, 1.0f } } };
+		//这个顺序要和 renderpass 中的附件顺序一致
+		std::array<VkClearValue, 2> clearValues{};
+		clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
+		clearValues[1].depthStencil = { 1.0f, 0 };
+		renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+		renderPassInfo.pClearValues = clearValues.data();
 		//指令开始录入
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 		//管线绑定
@@ -1671,18 +1715,19 @@ private:
 	
 	void createTextureImageView()
 	{
-		textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+		textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	}
 
-	VkImageView createImageView(VkImage image, VkFormat format)
+	VkImageView createImageView(VkImage image, VkFormat format,
+		VkImageAspectFlags aspectFlags)
 	{
 		VkImageViewCreateInfo viewInfo{};
 		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		viewInfo.image = image;
 		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 		viewInfo.format = format;
-		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewInfo.subresourceRange.aspectMask = aspectFlags;
 		viewInfo.subresourceRange.baseMipLevel = 0;
 		viewInfo.subresourceRange.levelCount = 1;
 		viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -1723,6 +1768,55 @@ private:
 			throw std::runtime_error("failed to create texture sampler!");
 		}
 	}
+
+	void createDepthResources()
+	{
+		VkFormat depthFormat = findDepthFormat();
+		createImage(swapChainExtent.width, 
+			swapChainExtent.height, 
+			depthFormat, 
+			VK_IMAGE_TILING_OPTIMAL, 
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 
+			depthImage, 
+			depthImageMemory);
+		depthImageView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+	}
+	VkFormat findDepthFormat()
+	{
+		return findSupportedFormat(
+			{ VK_FORMAT_D32_SFLOAT, 
+			VK_FORMAT_D32_SFLOAT_S8_UINT, 
+			VK_FORMAT_D24_UNORM_S8_UINT },
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+		);
+	}
+	//通用的格式筛选函数，它逐个向当前物理设备查询候选格式，
+	// 返回第一个满足指定平铺方式和全部能力要求的格式。
+	//问显卡这个格式是否支持深度缓冲附件，因为有的显卡不支持这个格式
+	VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates,
+		VkImageTiling tiling, VkFormatFeatureFlags features) {
+		
+		for (VkFormat format : candidates)
+		{
+			VkFormatProperties props;
+			vkGetPhysicalDeviceFormatProperties(physicalDevice,format,&props);
+			
+			if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
+				return format;
+			}
+			else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
+				return format;
+			}
+		}
+		throw std::runtime_error("failed to find supported format!");
+	}
+	bool hasStencilComponent(VkFormat format) {
+		return format == VK_FORMAT_D32_SFLOAT_S8_UINT || 
+			format == VK_FORMAT_D24_UNORM_S8_UINT;
+	}
+
 	GLFWwindow * window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
@@ -1801,10 +1895,14 @@ private:
 	//纹理图像
 	VkImage textureImage;
 	VkDeviceMemory textureImageMemory;
-
 	//另一个图像视图，纹理
 	VkImageView textureImageView;
 	VkSampler textureSampler;
+	
+	//深度
+	VkImage depthImage;
+	VkImageView depthImageView;
+	VkDeviceMemory depthImageMemory;
 };
 
 
