@@ -38,7 +38,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="ThirdParty\stb\stb_image.cpp"><Filter>婧愭枃浠?/Filter></ClCompile>
-    <ClInclude Include="ThirdParty\stb\stb_image.h"><Filter>澶存枃浠?/Filter></ClInclude>
+    <ClCompile Include="ThirdParty\stb\stb_image.cpp"><Filter>源文件</Filter></ClCompile>
+    <ClCompile Include="ThirdParty\tinyobjloader\tiny_obj_loader.cpp"><Filter>源文件</Filter></ClCompile>
+    <ClInclude Include="ThirdParty\stb\stb_image.h"><Filter>头文件</Filter></ClInclude>
+    <ClInclude Include="ThirdParty\tinyobjloader\tiny_obj_loader.h"><Filter>头文件</Filter></ClInclude>
   </ItemGroup>
 </Project>

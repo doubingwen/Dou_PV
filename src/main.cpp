@@ -17,13 +17,19 @@
 #include <array>
 #include <chrono>
 #include <stb_image.h>
+#include <tiny_obj_loader.h>
 #include <glm/gtc/matrix_transform.hpp>
-
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
+#include <unordered_map>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 //最多允许多少帧处于处理过程中。
 const int MAX_FRAMES_IN_FLIGHT = 2;
+
+const std::string MODEL_PATH = "F:/Code/Dou_PV/source/viking_room.obj";
+const std::string TEXTURE_PATH = "F:/Code/Dou_PV/source/viking_room.png";
 
 //验证层，目前只使用了一个验证层，后续可以添加更多的验证层。可用层
 const std::vector<const char*> validationLayers = {
@@ -73,27 +79,42 @@ struct Vertex {
 
 		return attributeDescriptions;
 	}
+	bool operator==(const Vertex& other) const {
+		return pos == other.pos && color == other.color && texCoord == other.texCoord;
+	}
 };
+
+template <>
+struct std::hash<Vertex> {
+	std::size_t operator()(const Vertex& vertex) const noexcept {
+		const auto posHash = std::hash<glm::vec3>{}(vertex.pos);
+		const auto colorHash = std::hash<glm::vec3>{}(vertex.color);
+		const auto texCoordHash = std::hash<glm::vec2>{}(vertex.texCoord);
+		return posHash ^ (colorHash << 1) ^ (texCoordHash << 2);
+	}
+};
+
+
 //const std::vector<Vertex> vertices = {
 //	{ { 0.0f, -0.5f },{ 1.0f, 1.0f, 1.0f } },
 //	{ { 0.5f, 0.5f },{ 0.0f, 1.0f, 0.0f } },
 //	{ { -0.5f, 0.5f },{ 0.0f, 0.0f, 1.0f } }
 //};
-const std::vector<Vertex> vertices = {
-	{ { -0.5f, -0.5f, 0.0f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
-	{ { 0.5f, -0.5f, 0.0f },{ 0.0f, 1.0f, 0.0f },{ 1.0f, 0.0f } },
-	{ { 0.5f, 0.5f, 0.0f },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },
-	{ { -0.5f, 0.5f, 0.0f },{ 1.0f, 1.0f, 1.0f },{ 0.0f, 1.0f } },
-
-	{ { -0.5f, -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
-	{ { 0.5f, -0.5f, -0.5f },{ 0.0f, 1.0f, 0.0f },{ 1.0f, 0.0f } },
-	{ { 0.5f, 0.5f, -0.5f },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },
-	{ { -0.5f, 0.5f, -0.5f },{ 1.0f, 1.0f, 1.0f },{ 0.0f, 1.0f } }
-};
-const std::vector<uint16_t> indices = {
-	0, 1, 2, 2, 3, 0,
-	4, 5, 6, 6, 7, 4
-};
+//const std::vector<Vertex> vertices = {
+//	{ { -0.5f, -0.5f, 0.0f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
+//	{ { 0.5f, -0.5f, 0.0f },{ 0.0f, 1.0f, 0.0f },{ 1.0f, 0.0f } },
+//	{ { 0.5f, 0.5f, 0.0f },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },
+//	{ { -0.5f, 0.5f, 0.0f },{ 1.0f, 1.0f, 1.0f },{ 0.0f, 1.0f } },
+//
+//	{ { -0.5f, -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
+//	{ { 0.5f, -0.5f, -0.5f },{ 0.0f, 1.0f, 0.0f },{ 1.0f, 0.0f } },
+//	{ { 0.5f, 0.5f, -0.5f },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },
+//	{ { -0.5f, 0.5f, -0.5f },{ 1.0f, 1.0f, 1.0f },{ 0.0f, 1.0f } }
+//};
+//const std::vector<uint16_t> indices = {
+//	0, 1, 2, 2, 3, 0,
+//	4, 5, 6, 6, 7, 4
+//};
 
 //创建调试消息接收器
 //自己写的拓展函数 ，调用的是Vulkan的拓展函数vkCreateDebugUtilsMessengerEXT，返回值是VkResult类型
@@ -194,6 +215,7 @@ private:
 		createTextureImage();
 		createTextureImageView();
 		createTextureSampler();
+		loadModel();
 		createVertexBuffer();
 		createIndexBuffer();
 		createUniformBuffers();
@@ -1130,7 +1152,7 @@ private:
 		VkBuffer vertexBuffers[] = { vertexBuffer };
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 		//描述集绑定
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
@@ -1555,12 +1577,12 @@ private:
 	void createTextureImage()
 	{
 		int texWidth, texHeight, texChannels;
-		stbi_uc* pixels = stbi_load("F:/Code/Dou_PV/tex/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-		VkDeviceSize imageSize = texWidth * texHeight * 4;
+		stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 		if (!pixels)
 		{
-			throw std::runtime_error("failed to load texture image!");
+			throw std::runtime_error("failed to load texture image: " + TEXTURE_PATH);
 		}
+		VkDeviceSize imageSize = static_cast<VkDeviceSize>(texWidth) * texHeight * 4;
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingBufferMemory;
 		createBuffer(imageSize, 
@@ -1817,6 +1839,44 @@ private:
 			format == VK_FORMAT_D24_UNORM_S8_UINT;
 	}
 
+	void loadModel()
+	{
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::material_t> materials;
+		std::string warn, err;
+		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+			throw std::runtime_error(warn + err);
+		}
+
+		std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+		for (const auto& shape : shapes) {
+			for (const auto& index : shape.mesh.indices) {
+				Vertex vertex{};
+				vertex.pos = {
+					attrib.vertices[3 * index.vertex_index + 0],
+					attrib.vertices[3 * index.vertex_index + 1],
+					attrib.vertices[3 * index.vertex_index + 2]
+				};
+
+				vertex.texCoord = {
+					attrib.texcoords[2 * index.texcoord_index + 0],
+					1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+				};
+
+				vertex.color = { 1.0f, 1.0f, 1.0f };
+				if (uniqueVertices.count(vertex) == 0) {
+					uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+					vertices.push_back(vertex);
+				}
+
+				indices.push_back(uniqueVertices[vertex]);
+			}
+		}
+
+	}
+
 	GLFWwindow * window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
@@ -1875,6 +1935,9 @@ private:
 	//是否帧缓冲改变
 	bool framebufferResized = false;
 
+	//模型顶点和索引
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
 	//顶点缓冲
 	VkBuffer vertexBuffer;
 	//顶点缓冲的内存

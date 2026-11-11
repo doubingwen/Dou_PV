@@ -1,0 +1,1 @@
+Viking room model and texture by nigelgoh, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). This version comes from the [Vulkan Tutorial](https://vulkan-tutorial.com/Loading_models), which adjusted the model's size and orientation.

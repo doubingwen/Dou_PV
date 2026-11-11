@@ -146,6 +146,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="tools\readfile.cpp" />
     <ClCompile Include="ThirdParty\stb\stb_image.cpp" />
+    <ClCompile Include="ThirdParty\tinyobjloader\tiny_obj_loader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\shaders\compile.bat" />
@@ -158,6 +159,7 @@
   <ItemGroup>
     <ClInclude Include="tools\readfile.h" />
     <ClInclude Include="ThirdParty\stb\stb_image.h" />
+    <ClInclude Include="ThirdParty\tinyobjloader\tiny_obj_loader.h" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <ClCompile>
