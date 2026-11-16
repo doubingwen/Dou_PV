@@ -210,6 +210,7 @@ private:
 		createDescriptorSetLayout();
 		createGraphicsPipline();
 		createCommandPool();
+		createColorResources();
 		createDepthResources();
 		createFramebuffers();
 		createTextureImage();
@@ -238,6 +239,9 @@ private:
 		vkDeviceWaitIdle(device);
 	}
 	void cleanup() {
+		vkDestroyImageView(device, colorImageView, nullptr);
+		vkDestroyImage(device, colorImage, nullptr);
+		vkFreeMemory(device, colorImageMemory, nullptr);
 		cleanupSwapChain();
 		vkDestroyImageView(device, depthImageView, nullptr);
 		vkDestroyImage(device, depthImage, nullptr);
@@ -446,6 +450,7 @@ private:
 			if (isDeviceSuitable(device))
 			{
 				physicalDevice = device;
+				msaaSamples= getMaxUsableSampleCount();
 				break;
 			}
 		}
@@ -754,6 +759,7 @@ private:
 		cleanupSwapChain();
 		createSwapChain();
 		createImageViews();
+		createColorResources();
 		createDepthResources();
 		createFramebuffers();
 	}
@@ -873,7 +879,7 @@ private:
 		VkPipelineMultisampleStateCreateInfo multisampling{};
 		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 		multisampling.sampleShadingEnable = VK_FALSE;
-		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampling.rasterizationSamples = msaaSamples;
 		multisampling.minSampleShading = 1.0f; // Optional
 		multisampling.pSampleMask = nullptr; // Optional
 		multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
@@ -978,19 +984,31 @@ private:
 	void createRenderPass()
 	{
 		//附件对于pass来言如何使用
+		//MSAA附件
 		VkAttachmentDescription colorAttachment{};
 		colorAttachment.format = swapChainImageFormat;
-		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachment.samples = msaaSamples;
 		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		
+		//渲染附件
+		VkAttachmentDescription colorAttachmentResolve{};
+		colorAttachmentResolve.format = swapChainImageFormat;
+		colorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		colorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 		//深度附件
 		VkAttachmentDescription depthAttachment{};
 		depthAttachment.format = findDepthFormat();
-		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachment.samples = msaaSamples;
 		depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -1005,13 +1023,17 @@ private:
 		VkAttachmentReference depthAttachmentRef{};
 		depthAttachmentRef.attachment = 1;
 		depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		
+		VkAttachmentReference colorAttachmentResolveRef{};
+		colorAttachmentResolveRef.attachment = 2;
+		colorAttachmentResolveRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
 		//子pass，绑定使用的附件
 		VkSubpassDescription subpass{};
 		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		subpass.colorAttachmentCount = 1;
 		subpass.pColorAttachments = &colorAttachmentRef;
 		subpass.pDepthStencilAttachment = &depthAttachmentRef;
+		subpass.pResolveAttachments = &colorAttachmentResolveRef;
 
 		//给渲染通道外部的操作与内部的子通道 
 		// 0 建立依赖，让子通道 0 按正确顺序开始使用附件。
@@ -1027,7 +1049,7 @@ private:
 		//颜色附件输出阶段
 		//来源侧不指定需要同步的内存访问类型
 		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-		dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		//目的的同步范围
 		//子通道 0 中，清除、写入颜色附件的相关操作，要遵守这条等待关系。
 		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;;
@@ -1036,7 +1058,7 @@ private:
 
 
 		//主pass设置
-		std::array<VkAttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
+		std::array<VkAttachmentDescription, 3> attachments = { colorAttachment, depthAttachment,  colorAttachmentResolve };
 		VkRenderPassCreateInfo renderPassInfo{};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());;
@@ -1057,10 +1079,10 @@ private:
 		swapChainFramebuffers.resize(swapChainImageViews.size());
 		for (size_t i = 0;i < swapChainImageViews.size();i++)
 		{
-			std::array<VkImageView, 2> attachments = {
-									swapChainImageViews[i],
-									depthImageView
-											};
+			std::array<VkImageView, 3> attachments = {
+									colorImageView,
+									depthImageView,
+									swapChainImageViews[i]};
 			VkFramebufferCreateInfo framebufferInfo{};
 			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			framebufferInfo.renderPass = renderPass;
@@ -1597,6 +1619,7 @@ private:
 		vkUnmapMemory(device, stagingBufferMemory);
 		stbi_image_free(pixels);
 		createImage(texWidth, texHeight, mipLevels,
+			VK_SAMPLE_COUNT_1_BIT,
 			VK_FORMAT_R8G8B8A8_SRGB,
 			VK_IMAGE_TILING_OPTIMAL, 
 			VK_IMAGE_USAGE_TRANSFER_SRC_BIT|
@@ -1620,7 +1643,8 @@ private:
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 		generateMipmaps(textureImage, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
 	}
-	void createImage(uint32_t width, uint32_t height, uint32_t mipLevels,
+	void createImage(uint32_t width, uint32_t height, 
+		uint32_t mipLevels, VkSampleCountFlagBits numSamples,
 		VkFormat format, VkImageTiling tiling, 
 		VkImageUsageFlags usage, VkMemoryPropertyFlags properties, 
 		VkImage& image, VkDeviceMemory& imageMemory)
@@ -1638,7 +1662,7 @@ private:
 		imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		imageInfo.usage = usage;
 		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageInfo.samples = numSamples;
 		imageInfo.flags = 0;
 		if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create image!");
@@ -1876,7 +1900,7 @@ private:
 		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 		//mipmap
 		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-		samplerInfo.minLod = static_cast<float>(mipLevels / 2); // Optional
+		samplerInfo.minLod = 0.0f; // Optional
 		samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
 		samplerInfo.mipLodBias = 0.0f; // Optional
 
@@ -1890,6 +1914,7 @@ private:
 		VkFormat depthFormat = findDepthFormat();
 		createImage(swapChainExtent.width, 
 			swapChainExtent.height, 1,
+			msaaSamples,
 			depthFormat, 
 			VK_IMAGE_TILING_OPTIMAL, 
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 
@@ -1971,6 +1996,33 @@ private:
 
 	}
 
+	VkSampleCountFlagBits getMaxUsableSampleCount()
+	{
+		VkPhysicalDeviceProperties physicalDeviceProperties;
+		vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+		VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+		if (counts & VK_SAMPLE_COUNT_64_BIT) { return VK_SAMPLE_COUNT_64_BIT; }
+		if (counts & VK_SAMPLE_COUNT_32_BIT) { return VK_SAMPLE_COUNT_32_BIT; }
+		if (counts & VK_SAMPLE_COUNT_16_BIT) { return VK_SAMPLE_COUNT_16_BIT; }
+		if (counts & VK_SAMPLE_COUNT_8_BIT) { return VK_SAMPLE_COUNT_8_BIT; }
+		if (counts & VK_SAMPLE_COUNT_4_BIT) { return VK_SAMPLE_COUNT_4_BIT; }
+		if (counts & VK_SAMPLE_COUNT_2_BIT) { return VK_SAMPLE_COUNT_2_BIT; }
+		return VK_SAMPLE_COUNT_1_BIT;
+	}
+
+	void createColorResources()
+	{
+		VkFormat colorFormat = swapChainImageFormat;
+		createImage(swapChainExtent.width, swapChainExtent.height,
+			1, msaaSamples, 
+			colorFormat, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 
+			colorImage, colorImageMemory);
+		colorImageView = createImageView(colorImage,
+			colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	}
 	GLFWwindow * window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
@@ -1978,6 +2030,7 @@ private:
 	VkDevice device;
 	//物理设备
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 
 	//绘图队列和呈现队列
 	VkQueue graphicsQueue;
@@ -2061,6 +2114,12 @@ private:
 	VkImage depthImage;
 	VkImageView depthImageView;
 	VkDeviceMemory depthImageMemory;
+
+	//MSAA
+	VkImage colorImage;
+	VkDeviceMemory colorImageMemory;
+	VkImageView colorImageView;
+
 };
 
 
